@@ -17,6 +17,7 @@ void ps2_mouse_event(PS2MouseState *s,
                      int dx, int dy, int dz, int buttons_state);
 
 typedef struct KBDState KBDState;
+void i8042_reset(KBDState *s);
 
 uint32_t kbd_read_status(void *opaque, uint32_t addr);
 void kbd_write_command(void *opaque, uint32_t addr, uint32_t val);

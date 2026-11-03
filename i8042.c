@@ -1044,3 +1044,58 @@ PS2MouseState *ps2_mouse_init(void (*update_irq)(void *, int), void *update_arg)
     ps2_reset(&s->common);
     return s;
 }
+
+static void ps2_queue_clear(PS2State *s)
+{
+    PS2Queue *q = &s->queue;
+#ifdef THREAD_SAFE
+    xSemaphoreTake(q->mutex, portMAX_DELAY);
+#endif
+    q->rptr = 0;
+    q->wptr = 0;
+    q->count = 0;
+    s->write_cmd = -1;
+#ifdef THREAD_SAFE
+    xSemaphoreGive(q->mutex);
+#endif
+}
+
+/* Called on a PC reset: put the controller, keyboard and mouse back in
+   their power-on state.  A mouse left enabled by the previous system
+   keeps filling its queue while the next one boots, and Linux gives up
+   on the controller when it finds more than 16 bytes waiting. */
+void i8042_reset(KBDState *s)
+{
+    PS2KbdState *k = s->kbd;
+    PS2MouseState *m = s->mouse;
+
+#ifdef THREAD_SAFE
+    while (atomic_flag_test_and_set_explicit(&(k->delay_flag),
+                                             memory_order_acquire)) {}
+#endif
+    k->delay = false;
+    ps2_queue_clear(&k->common);
+#ifdef THREAD_SAFE
+    atomic_flag_clear_explicit(&(k->delay_flag), memory_order_release);
+#endif
+    k->scan_enabled = 0;
+    k->translate = 0;
+    k->translate_state = 0;
+
+    ps2_queue_clear(&m->common);
+    m->mouse_status = 0;
+    m->mouse_resolution = 0;
+    m->mouse_sample_rate = 0;
+    m->mouse_wrap = 0;
+    m->mouse_type = 0;
+    m->mouse_detect_state = 0;
+    m->mouse_dx = 0;
+    m->mouse_dy = 0;
+    m->mouse_dz = 0;
+    m->mouse_buttons = 0;
+
+    kbd_reset(s);
+    s->write_cmd = 0;
+    s->pending = 0;
+    kbd_update_irq(s);
+}

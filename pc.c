@@ -597,6 +597,7 @@ void pc_step(PC *pc)
 {
 	if (pc->reset_request) {
 		pc->reset_request = 0;
+		i8042_reset(pc->i8042);
 		load_bios_and_reset(pc);
 	}
 
