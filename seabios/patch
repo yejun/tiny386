@@ -214,12 +214,21 @@ diff --git a/src/misc.c b/src/misc.c
 index b5117304..9cdc6d08 100644
 --- a/src/misc.c
 +++ b/src/misc.c
-@@ -63,7 +63,7 @@ mathcp_setup(void)
+@@ -8,6 +8,7 @@
+ #include "biosvar.h" // GET_BDA
+ #include "bregs.h" // struct bregs
+ #include "hw/pic.h" // enable_hwirq
++#include "hw/rtc.h" // rtc_read
+ #include "output.h" // debug_enter
+ #include "stacks.h" // call16_int
+ #include "string.h" // memset
+@@ -63,7 +64,8 @@ mathcp_setup(void)
  {
      dprintf(3, "math cp init\n");
      // 80x87 coprocessor installed
 -    set_equipment_flags(0x02, 0x02);
-+//    set_equipment_flags(0x02, 0x02);
++    if (rtc_read(CMOS_EQUIPMENT_INFO) & 0x02)   // (tiny386: CMOS 14h bit 1 when it has an FPU)
++        set_equipment_flags(0x02, 0x02);
      enable_hwirq(13, FUNC16(entry_75));
  }
  

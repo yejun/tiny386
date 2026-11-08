@@ -789,6 +789,8 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init(4, pc->pic, set_irq);
 	pc->cmos = cmos_init(conf->mem_size, 8, pc->pic, set_irq);
+	if (conf->fpu)   /* the equipment byte's math coprocessor: the BIOS's equipment word (INT 11h) */
+		cmos_set(pc->cmos, 0x14, 0x02);
 	pc->ide = ide_allocate(14, pc->pic, set_irq);
 	pc->ide2 = ide_allocate(15, pc->pic, set_irq);
 	const char **disks = conf->disks;
