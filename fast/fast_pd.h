@@ -100,11 +100,18 @@ static struct pd_block *pd_cur;    /* the block running (a global: no register f
 enum { PD_LIST(PD_ENUM) PD_N };
 #undef PD_ENUM
 
+#define PD_MOST (sizeof(struct pd_block) + PD_MAX * sizeof(struct pd_uop) + PD_MAX * 15 + 16)
+
+/* The tail of the arena holds a one-bit first-visit filter. Collisions admit early. */
+#define PD_SEEN_BYTES (FAST_PD_SIZE >= PD_MOST + 8192 ? 8192u : 0u)
+#define PD_SEEN (pd_arena + FAST_PD_SIZE - PD_SEEN_BYTES)
+
 static void pd_flush(void)
 {
 	memset(pd_hash, 0, sizeof(*pd_hash) * PD_HASH);
 	memset(pd_codeln, 0, (pd_ram >> 12) * sizeof(*pd_codeln));
 	memset(pd_lnblk, 0, (pd_ram >> 7) * sizeof(*pd_lnblk));
+	memset(PD_SEEN, 0, PD_SEEN_BYTES);
 	pd_free = pd_arena;
 	pd_gen++;
 }
@@ -125,6 +132,7 @@ static bool pd_init(CPUI386 *cpu)
 	static const void *mem;
 	static uword cap;
 	const uword ram = cpu->phys_mem_size & ~0xfff;
+	if (FAST_PD_SIZE < PD_MOST) return false;
 	if (!pd_arena) {
 		if (failed) return false;
 		cap = ram;
@@ -684,12 +692,10 @@ static void pd_lines(CPUI386 *cpu, const struct pd_block *bk)
 			if (a < pd_ram) pd_codeln[a >> 12] |= 1u << ((a >> 7) & 31);
 }
 
-#define PD_MOST (sizeof(struct pd_block) + PD_MAX * sizeof(struct pd_uop) + PD_MAX * 15 + 16)
-
 /* a new block for the code at host */
 static struct pd_block *pd_build(CPUI386 *cpu, const u8 *host, const u8 *lim, bool code16)
 {
-	if (pd_free + PD_MOST > pd_arena + FAST_PD_SIZE) pd_flush();
+	if ((size_t)(PD_SEEN - pd_free) < PD_MOST) pd_flush();
 	struct pd_block *bk = (struct pd_block *) pd_free;
 	const size_t size = pd_decode(cpu, bk, host, lim, code16);
 	bk->cap = size - sizeof(struct pd_block);
@@ -733,6 +739,17 @@ static struct pd_block *pd_get(CPUI386 *cpu, const u8 *host, const u8 *lim, bool
 			if (!old) old = bk;
 		}
 	if (old && pd_redo(cpu, old, lim)) return old;
+	/* A cold miss uses the ordinary fast interpreter until the next lookup. */
+	if (PD_SEEN_BYTES) {
+		u32 offset = host - cpu->phys_mem;
+		unsigned bit = (offset ^ (offset >> 13) ^ ((unsigned)code16 << 9)) & (PD_SEEN_BYTES * 8 - 1);
+		u8 *byte = PD_SEEN + (bit >> 3);
+		u8 mask = 1u << (bit & 7);
+		if (!(*byte & mask)) {
+			*byte |= mask;
+			return NULL;
+		}
+	}
 	return pd_build(cpu, host, lim, code16);
 }
 
